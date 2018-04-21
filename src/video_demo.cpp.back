@@ -1,0 +1,128 @@
+#include <iostream>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+
+#include "kcftracker.hpp"
+
+#include <dirent.h>
+
+using namespace std;
+using namespace cv;
+
+
+#define WINDOW_NAME "window"
+
+void on_MouseHandle(int event, int x, int y, int flags, void* param);
+void DrawRectangle( cv::Mat& img, cv::Rect box );
+
+Rect g_rectangle;
+bool g_bDrawingBox = false;
+bool g_trackFlag = false;
+bool init_trackFlag = false;
+
+int main(int argc, char** argv) {
+    
+    // // Read video
+    VideoCapture video(0);
+    // VideoCapture video;
+    // video.open("/home/cv/Videos/Quadcopter/IMG_2348.mp4");  
+
+    if (!video.isOpened()) {
+        cout << "Could not read video file" << endl;
+        return 1;
+    }
+    double fps = video.get(CV_CAP_PROP_FPS);
+    cout << "Frames per second using video.get(CV_CAP_PROP_FPS) : " << fps << endl;
+
+    // Initialization the KCF
+    string kernel_type = "gaussian"; // gaussian polynomial linear
+    string feature_type = "hog";     // hog gray
+
+    bool HOG = true;
+	bool FIXEDWINDOW = false;
+	bool MULTISCALE = true;
+	bool LAB = false;
+    KCFTracker tracker(HOG, FIXEDWINDOW, MULTISCALE, LAB);
+
+    Mat frame;
+    Mat show_frame;
+    Mat obj_frame;
+    g_rectangle = Rect(-1,-1,0,0);
+    Rect result_rect = Rect(-1,-1,0,0);
+
+    // Get the rect region of object 
+    namedWindow(WINDOW_NAME);
+    while(video.read(frame)) {
+        setMouseCallback(WINDOW_NAME, on_MouseHandle, (void*)&frame);
+        frame.copyTo(show_frame);
+        // initialze the tracking region
+        if (g_bDrawingBox) {
+            DrawRectangle(show_frame, g_rectangle); 
+            show_frame.copyTo(obj_frame);
+            imshow("obj", obj_frame);
+        } 
+        else {
+            if (g_trackFlag) {
+                tracker.init(g_rectangle, obj_frame);
+                g_trackFlag = false;
+                init_trackFlag = true;
+            }
+        }
+
+        if (init_trackFlag) {
+            result_rect = tracker.update(frame);
+            DrawRectangle(show_frame, result_rect);  
+        }
+
+        imshow(WINDOW_NAME, show_frame); 
+        char k = waitKey(1);
+        if (k == 27) break;
+        // 
+        if (k == 'q') init_trackFlag = false;
+        // waitKey(200);
+    }
+
+    video.release();
+    return 0;
+}
+
+void on_MouseHandle(int event, int x, int y, int flags, void* param) {
+    Mat& image = *(cv::Mat*) param;
+
+	switch(event){
+        case EVENT_MOUSEMOVE: {
+            if( g_bDrawingBox ) {
+                g_rectangle.width = x-g_rectangle.x;
+                g_rectangle.height = y-g_rectangle.y;
+                }
+            } break;
+            
+        case EVENT_LBUTTONDOWN: {
+            g_bDrawingBox = true;
+            g_rectangle = Rect( x, y, 0, 0 );
+            } break;
+
+        case EVENT_LBUTTONUP: {
+            g_bDrawingBox = false;
+            g_trackFlag = true;
+            if(g_rectangle.width < 0) {
+                    g_rectangle.x += g_rectangle.width;
+                    g_rectangle.width *= -1;
+            }
+
+            if( g_rectangle.height < 0 ) {
+                g_rectangle.y += g_rectangle.height;
+                g_rectangle.height *= -1;
+            }
+            // DrawRectangle(image, g_rectangle);
+            } break;
+    }
+}
+
+void DrawRectangle( cv::Mat& img, cv::Rect box ) {
+	cv::rectangle(img, box.tl(), box.br(), cv::Scalar(0, 255, 255), 2);
+}
